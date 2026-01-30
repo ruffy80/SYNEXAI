@@ -40,3 +40,169 @@
   </div>
 </body>
 </html>
+const express = require("express");
+const path = require("path");
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
+
+const core = require("./modules/core");
+
+app.get("/api/status", (req, res) => {
+  res.json({
+    status: "online",
+    unicorn: "SYNEXAI INFINITE",
+    modules: core.modulesLoaded
+  });
+});
+
+app.post("/api/modules/create", (req, res) => {
+  try {
+    const { name, description, inputs, outputs } = req.body || {};
+    const result = core.createModule({ name, description, inputs, outputs });
+    res.json({ status: "ok", message: "Module created", module: result });
+  } catch (err) {
+    res.status(400).json({ status: "error", message: err.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`SYNEXAI server running on port ${PORT}`);
+});
+{
+  "name": "synexai",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SYNEXAI INFINITE</title>
+</head>
+<body>
+  <header>
+    <h1>Welcome to SYNEXAI INFINITE</h1>
+  </header>
+</body>
+</html>
+const fs = require("fs");
+const path = require("path");
+
+function sanitizeName(name) {
+  return name.toLowerCase().replace(/[^a-z0-9_]/g, "_");
+}
+
+function createModule({ name, description, inputs = [], outputs = [] }) {
+  if (!name) throw new Error("Module name is required");
+
+  const safeName = sanitizeName(name);
+  const fileName = `${safeName}.js`;
+  const filePath = path.join(__dirname, fileName);
+
+  if (fs.existsSync(filePath)) throw new Error(`Module ${fileName} already exists`);
+
+  const template = `/**
+ * ${name}
+ * ${description || "No description provided"}
+ *
+ * Inputs: ${JSON.stringify(inputs)}
+ * Outputs: ${JSON.stringify(outputs)}
+ */
+
+module.exports = {
+  name: "${name}",
+  description: ${JSON.stringify(description || "")},
+  inputs: ${JSON.stringify(inputs)},
+  outputs: ${JSON.stringify(outputs)},
+  run: async (context = {}) => {
+    return {
+      status: "ok",
+      message: "Module ${name} executed successfully",
+      data: {}
+    };
+  }
+};
+`;
+
+  fs.writeFileSync(filePath, template, "utf8");
+
+  return { fileName, filePath, name, description, inputs, outputs };
+}
+
+module.exports = { createModule };
+const fs = require("fs");
+const path = require("path");
+const moduleCreator = require("./moduleCreator");
+
+const modulesDir = __dirname;
+const conceptsDir = path.join(__dirname, "..", "concepts");
+
+function loadConceptModules() {
+  if (!fs.existsSync(conceptsDir)) return [];
+
+  const files = fs.readdirSync(conceptsDir);
+  const created = [];
+
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+
+    const conceptPath = path.join(conceptsDir, file);
+    const concept = JSON.parse(fs.readFileSync(conceptPath, "utf8"));
+
+    try {
+      const result = moduleCreator.createModule(concept);
+      created.push(result);
+    } catch (err) {
+      console.error("Concept module error:", file, err.message);
+    }
+  }
+
+  return created;
+}
+
+function loadModules() {
+  const files = fs.readdirSync(modulesDir);
+  const loaded = [];
+
+  for (const file of files) {
+    if (file === "core.js" || file === "moduleCreator.js") continue;
+    if (!file.endsWith(".js")) continue;
+
+    const modPath = path.join(modulesDir, file);
+    try {
+      const mod = require(modPath);
+      loaded.push({
+        file,
+        name: mod.name || file,
+        description: mod.description || "",
+        inputs: mod.inputs || [],
+        outputs: mod.outputs || []
+      });
+    } catch (err) {
+      console.error("Failed to load module:", file, err.message);
+    }
+  }
+
+  return loaded;
+}
+
+const generatedModules = loadConceptModules();
+const loadedModules = loadModules();
+
+module.exports = {
+  generatedModules,
+  modulesLoaded: loadedModules,
+  createModule: moduleCreator.createModule
+};
+concepts/
